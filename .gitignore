@@ -1,0 +1,17 @@
+.DS_Store
+__pycache__/
+*.pyc
+node_modules/
+output/
+local-payload-archive/
+agents.md
+db/*.sqlite
+db/*.sqlite-journal
+db/*.sqlite-wal
+db/*.sqlite-shm
+db/*.version.json
+VIN+TEL.md
+CLAUDE.md
+# Audyt bezpieczeństwa (opis podatności) - poza publicznym repo
+AUDIT.md
+.claude/

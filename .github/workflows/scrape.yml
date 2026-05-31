@@ -1,0 +1,125 @@
+name: scrape
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+    inputs:
+      source_id:
+        description: "Optional: scrape only this source id"
+        required: false
+        type: string
+
+concurrency:
+  group: scrape
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Download database from release
+        run: |
+          set -euo pipefail
+          gh release create latest-data --title "Latest Data" \
+            --notes "Auto-updated database snapshot" 2>/dev/null || true
+          mkdir -p db
+          # Rozróżniamy "release/asset jeszcze nie istnieje" (legalny pierwszy
+          # run = fresh start) od błędu pobrania (network / 5xx / rate-limit).
+          # Ten drugi MUSI wywalić joba: inaczej scrape leci na pustej bazie, a
+          # krok uploadu nadpisuje dobrą kanoniczną latest-data pustką (M1).
+          if gh release download latest-data \
+               -p "car-market-monitor.sqlite" \
+               -p "car-market-monitor.sqlite.version.json" \
+               -D db/ 2>download_err.log; then
+            echo "Database downloaded from release"
+          elif grep -qiE "release not found|no assets|asset.*not found|not found" download_err.log; then
+            echo "::notice::latest-data has no database asset yet - starting fresh"
+          else
+            echo "::error::Failed to download latest-data (transient?) - aborting so we don't clobber the canonical DB"
+            cat download_err.log
+            exit 1
+          fi
+          # Baseline: ile runów ma pobrana baza. Krok uploadu nie pozwoli
+          # nadpisać latest-data bazą, która tę historię zgubiła.
+          if [ -f db/car-market-monitor.sqlite ]; then
+            BASELINE_RUNS=$(sqlite3 db/car-market-monitor.sqlite "SELECT COUNT(*) FROM scrape_runs" 2>/dev/null || echo 0)
+          else
+            BASELINE_RUNS=0
+          fi
+          echo "BASELINE_RUNS=$BASELINE_RUNS" >> "$GITHUB_ENV"
+          echo "Baseline scrape_runs: $BASELINE_RUNS"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Run scrape
+        env:
+          CAR_MARKET_MONITOR_TRIGGER: ${{ github.event_name == 'workflow_dispatch' && 'manual' || 'scheduled' }}
+        run: |
+          if [ -n "${{ inputs.source_id }}" ]; then
+            node bin/run.js --source "${{ inputs.source_id }}"
+          else
+            node bin/run.js
+          fi
+
+      - name: Prune old snapshot payloads
+        run: node bin/prune-snapshot-payloads.js --no-archive
+
+      - name: Upload database to release
+        run: |
+          set -euo pipefail
+          DB=db/car-market-monitor.sqlite
+          # Guard: zbudowana baza nie może mieć MNIEJ historii niż pobrana.
+          # Spadek liczby runów = pobranie się nie powiodło i scrape poleciał na
+          # pustej/okrojonej bazie - nie wolno wtedy nadpisać ŻADNEGO snapshotu
+          # (ani dziennego, ani kanonicznego latest-data). Normalnie liczba runów
+          # rośnie o 1 na run (scrape zawsze wstawia wiersz scrape_runs).
+          BUILT_RUNS=$(sqlite3 "$DB" "SELECT COUNT(*) FROM scrape_runs")
+          echo "Built scrape_runs: $BUILT_RUNS (baseline: ${BASELINE_RUNS:-0})"
+          if [ "$BUILT_RUNS" -lt "${BASELINE_RUNS:-0}" ]; then
+            echo "::error::Built DB has $BUILT_RUNS runs vs baseline ${BASELINE_RUNS:-0} - refusing to upload (likely a failed download). Canonical latest-data left intact."
+            exit 1
+          fi
+          DAY_TAG="data/$(date -u +%Y-%m-%d)"
+          gh release create "$DAY_TAG" \
+            --title "Data $DAY_TAG" \
+            --notes "Daily snapshot" 2>/dev/null || true
+          gh release upload "$DAY_TAG" \
+            "$DB" \
+            db/car-market-monitor.sqlite.version.json \
+            --clobber
+          gh release upload latest-data \
+            "$DB" \
+            db/car-market-monitor.sqlite.version.json \
+            --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Prune old data releases (keep last 30 days)
+        run: |
+          CUTOFF=$(date -u -d '30 days ago' +%Y-%m-%d 2>/dev/null \
+            || date -u -v-30d +%Y-%m-%d)
+          gh release list --json tagName --jq '.[].tagName' \
+            | grep '^data/' | sort -r | while read -r tag; do
+                day="${tag#data/}"
+                [ "$day" \< "$CUTOFF" ] || continue
+                echo "Deleting $tag"
+                gh release delete "$tag" --yes --cleanup-tag
+              done
+          exit 0
+        env:
+          GH_TOKEN: ${{ github.token }}

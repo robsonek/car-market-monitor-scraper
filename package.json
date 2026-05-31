@@ -1,0 +1,20 @@
+{
+  "name": "car-market-monitor",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "scrape": "node bin/run.js",
+    "sources": "node bin/sources.js",
+    "test": "node --test --test-reporter=spec test/**/*.test.js",
+    "test:watch": "node --test --watch test/**/*.test.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.8.0",
+    "commander": "^14.0.3",
+    "p-limit": "^7.3.0"
+  }
+}
