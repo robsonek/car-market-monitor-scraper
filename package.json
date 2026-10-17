@@ -13,8 +13,8 @@
     "test:watch": "node --test --watch test/**/*.test.js"
   },
   "dependencies": {
-    "better-sqlite3": "^12.8.0",
-    "commander": "^14.0.3",
-    "p-limit": "^7.3.0"
+    "better-sqlite3": "^13.0.3",
+    "commander": "^15.0.0",
+    "p-limit": "^7.3.3"
   }
 }

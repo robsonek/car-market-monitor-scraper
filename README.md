@@ -64,7 +64,7 @@ npm install        # Node 24 (patrz .node-version)
 
 Baza powstanie sama przy pierwszym uruchomieniu (migracje aplikowane automatycznie). Lokalnie pracujesz na własnej kopii; produkcyjna baza żyje w release `latest-data`.
 
-> `better-sqlite3` to moduł natywny przypięty do ABI Node. Projekt celuje w **Node 24** (`.node-version`, `engines`). Po zmianie wersji Node zrób `npm rebuild better-sqlite3`.
+> `better-sqlite3` to moduł natywny. Od wersji 13 korzysta z N-API, więc prebuilt binary działa na różnych wersjach Node i po zmianie Node nie trzeba już `npm rebuild`. Projekt celuje w **Node 24** (`.node-version`, `engines`).
 
 ## Zarządzanie źródłami
 
