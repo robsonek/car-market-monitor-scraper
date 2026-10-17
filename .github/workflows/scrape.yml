@@ -79,6 +79,13 @@ jobs:
       - name: Prune old snapshot payloads
         run: node bin/prune-snapshot-payloads.js --no-archive
 
+      # Dashboard pobiera bazę skompresowaną brotli (proxy w
+      # car-market-monitor-web podaje ją z Content-Encoding: br): ~120 MB -> ~17 MB.
+      # Musi iść PO prune, bo prune robi VACUUM i pisze manifest, a .br ma
+      # zawierać dokładnie te bajty, których sha jest w manifeście.
+      - name: Compress database for dashboard
+        run: node bin/compress-db.js
+
       - name: Upload database to release
         run: |
           set -euo pipefail
@@ -102,8 +109,15 @@ jobs:
             "$DB" \
             db/car-market-monitor.sqlite.version.json \
             --clobber
+          # Najpierw bazy (.br dla dashboardu, surowa dla następnego runu CI),
+          # manifest osobnym wywołaniem na końcu. Jedno wywołanie gh nie
+          # gwarantuje kolejności assetów, a dashboard traktuje sha z manifestu
+          # jako klucz cache - nowy sha nie może się pojawić przed bazą pod nim.
           gh release upload latest-data \
+            "$DB.br" \
             "$DB" \
+            --clobber
+          gh release upload latest-data \
             db/car-market-monitor.sqlite.version.json \
             --clobber
         env:

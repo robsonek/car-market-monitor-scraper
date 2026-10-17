@@ -8,7 +8,7 @@ To repo zawiera **scraper + pipeline danych**. Przeglądarka danych (dashboard) 
 
 Baza to pojedynczy plik SQLite `db/car-market-monitor.sqlite` - **nie jest commitowana do repo** (jest w `.gitignore`). Trzymamy ją jako **GitHub Release**:
 
-- `latest-data` - zawsze najnowsza baza (workflow pobiera ją na starcie i odsyła po runie),
+- `latest-data` - zawsze najnowsza baza (workflow pobiera ją na starcie i odsyła po runie) plus jej kopia skompresowana brotli `car-market-monitor.sqlite.br` dla dashboardu,
 - `data/<YYYY-MM-DD>` - dzienne snapshoty (trzymane 30 dni).
 
 Runner Actions jest efemeryczny, więc Release jest jedynym trwałym magazynem między runami.
@@ -16,7 +16,7 @@ Runner Actions jest efemeryczny, więc Release jest jedynym trwałym magazynem m
 ## Architektura
 
 - **Cron GitHub Actions** (`0 * * * *`, co godzinę) odpala workflow `scrape`.
-- Workflow: pobiera bazę z release `latest-data` → `node bin/run.js` → prune starych payloadów → odsyła bazę do release.
+- Workflow: pobiera bazę z release `latest-data` → `node bin/run.js` → prune starych payloadów → kompresja brotli (`bin/compress-db.js`) → odsyła bazę, jej wersję `.br` i na końcu manifest do release.
 - Jeden proces Node 24; źródła i detale pobierane **sekwencyjnie** (`p-limit(1)`), żeby nie złapać bana.
 - Cała faza zapisu (snapshoty + diffy + reconcile + wiersz runu) leci w jednej transakcji `better-sqlite3` per źródło - crash = rollback, brak pół-finalizowanego stanu.
 
@@ -47,6 +47,7 @@ Runner Actions jest efemeryczny, więc Release jest jedynym trwałym magazynem m
 - [bin/run.js](bin/run.js) - CLI scrape'a (uruchamiany przez workflow).
 - [bin/sources.js](bin/sources.js) - zarządzanie źródłami.
 - [bin/prune-snapshot-payloads.js](bin/prune-snapshot-payloads.js) - czyszczenie/archiwizacja starych payloadów (workflow woła `--no-archive`).
+- [bin/compress-db.js](bin/compress-db.js) - kompresja bazy brotli do `<db>.br` dla dashboardu (uruchamiać po zamknięciu bazy, czyli po prune).
 - [src/lib/db.js](src/lib/db.js) - otwarcie SQLite + automatyczne migracje (fail-fast guard + fingerprint schematu).
 - [src/lib/marketplace-source.js](src/lib/marketplace-source.js) - parser listingu/detalu, `normalizeDetail()`, dekryptaż tokenów.
 - [src/lib/marketplace-source-params.js](src/lib/marketplace-source-params.js) - definicja parametrów + `extractParams()`. **MUSI być w sync z DDL `listings`**.
@@ -92,7 +93,7 @@ npm test
 
 ## Dashboard
 
-Frontend (przeglądarka danych) **nie jest w tym repo**. Żyje w osobnym, **prywatnym** repo `car-market-monitor-web` i jest hostowany na **Cloudflare Pages za logowaniem**. Stronę zasila baza z publicznego release `latest-data` - Cloudflare Function pobiera ją serwerowo i podaje zalogowanym użytkownikom (sam plik bazy w release pozostaje publiczny).
+Frontend (przeglądarka danych) **nie jest w tym repo**. Żyje w osobnym, **prywatnym** repo `car-market-monitor-web` i jest hostowany na **Cloudflare Pages za logowaniem**. Stronę zasila baza z publicznego release `latest-data` - Cloudflare Function pobiera ją serwerowo i podaje zalogowanym użytkownikom (sam plik bazy w release pozostaje publiczny). Proxy serwuje wersję `.br` z `Content-Encoding: br`, więc przeglądarka pobiera ok. 7 razy mniej danych i rozpakowuje je sama; gdy `.br` brak, wraca do surowej bazy.
 
 ## Ważne uwagi
 

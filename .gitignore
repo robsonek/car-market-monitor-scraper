@@ -9,6 +9,7 @@ db/*.sqlite
 db/*.sqlite-journal
 db/*.sqlite-wal
 db/*.sqlite-shm
+db/*.sqlite.br*
 db/*.version.json
 VIN+TEL.md
 CLAUDE.md
